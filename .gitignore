@@ -11,3 +11,8 @@ reports/
 .ruff_cache/
 
 .env
+
+# Locally-built godialer binary. The tool auto-builds into ~/.cache/pqcaudit/,
+# but a manual `go build .` in the source dir would drop the binary here.
+src/pqcaudit/probe/godialer/godialer
+src/pqcaudit/probe/godialer/godialer.exe

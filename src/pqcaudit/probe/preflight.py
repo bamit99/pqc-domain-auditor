@@ -227,7 +227,11 @@ def preflight(
         mode = "openssl" if openssl_ok else ""
 
     if mode == "go":
-        assert go_dialer, "go mode selected without a dialer"
+        if not go_dialer:
+            return PreflightResult(
+                ok=False,
+                error="Go backend selected but no godialer binary is available.",
+            )
         return PreflightResult(
             ok=True,
             backend="go",

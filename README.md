@@ -102,7 +102,7 @@ python -m venv .venv
 source .venv/bin/activate
 
 pip install -e .
-pqcaudit preflight   # verify OpenSSL + ML-KEM groups
+pqcaudit preflight   # verify a probe backend (Go dialer or OpenSSL 3.5+)
 ```
 
 ## Usage
