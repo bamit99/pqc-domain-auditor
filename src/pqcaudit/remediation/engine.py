@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..analysis.models import HostResult, Verdict
+from ..analysis.scoring import PQ_SIGNATURE_ALGS
 
 STACK_FIXES: dict[str, tuple[str, str]] = {
     "nginx": (
@@ -189,7 +190,7 @@ def remediate_host(host: HostResult) -> list[str]:
             "PQ-only with no classical fallback risks locking out older clients. Keep "
             "X25519 / P-256 in the supported-groups list."))
 
-    if probe.cert_signature_algorithm and "ML-DSA" not in (probe.cert_signature_algorithm or ""):
+    if probe.cert_signature_algorithm and probe.cert_signature_algorithm not in PQ_SIGNATURE_ALGS:
         items.append(RemediationItem("low", "Certificate signature is classical",
             f"Certificate signed with {probe.cert_signature_algorithm}. Session confidentiality "
             "is already PQ-protected by key exchange, but plan ML-DSA (FIPS 204) certificates "

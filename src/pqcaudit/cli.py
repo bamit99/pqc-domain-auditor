@@ -52,8 +52,15 @@ def _setup_logging(verbose: bool) -> None:
 
 
 def _valid_domain(value: str) -> str:
+    import re
+
     value = value.strip().lower().rstrip(".")
     if not value or " " in value:
+        raise typer.BadParameter(f"invalid domain: '{value}'")
+    # Reject anything that isn't a dot-separated sequence of LDH labels.
+    if not re.fullmatch(r"[a-z0-9-]+(\.[a-z0-9-]+)+", value) or ".." in value:
+        raise typer.BadParameter(f"invalid domain: '{value}'")
+    if any(label.startswith("-") or label.endswith("-") for label in value.split(".")):
         raise typer.BadParameter(f"invalid domain: '{value}'")
     return value
 

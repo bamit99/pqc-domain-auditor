@@ -114,27 +114,27 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>PQC TLS Readiness Report - {domain}</title>
+<title>PQC TLS Readiness Report - {{domain}}</title>
 <style>
-  body {{ font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 2rem auto; max-width: 1000px; color: #1a1a1a; }}
-  h1 {{ border-bottom: 3px solid #2563eb; padding-bottom: .4rem; }}
-  .meta {{ color: #555; margin-bottom: 1.5rem; }}
-  .badge {{ display: inline-block; padding: .15rem .6rem; border-radius: 999px; font-size: .8rem; color: #fff; }}
-  .b-ready {{ background: #16a34a; }} .b-capable {{ background: #ca8a04; }}
-  .b-pure_only {{ background: #ea580c; }} .b-not_ready {{ background: #dc2626; }}
-  .b-legacy {{ background: #b91c1c; }} .b-unreachable {{ background: #9ca3af; }}
-  table {{ border-collapse: collapse; width: 100%; font-size: .9rem; }}
-  th, td {{ text-align: left; padding: .5rem .6rem; border-bottom: 1px solid #e5e7eb; }}
-  th {{ background: #f3f4f6; }}
-  pre {{ background: #0f172a; color: #e2e8f0; padding: .8rem; border-radius: 6px; overflow-x: auto; }}
-  .narrative {{ background: #eff6ff; border-left: 4px solid #2563eb; padding: 1rem; border-radius: 4px; }}
+  body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 2rem auto; max-width: 1000px; color: #1a1a1a; }
+  h1 { border-bottom: 3px solid #2563eb; padding-bottom: .4rem; }
+  .meta { color: #555; margin-bottom: 1.5rem; }
+  .badge { display: inline-block; padding: .15rem .6rem; border-radius: 999px; font-size: .8rem; color: #fff; }
+  .b-ready { background: #16a34a; } .b-capable { background: #ca8a04; }
+  .b-pure_only { background: #ea580c; } .b-not_ready { background: #dc2626; }
+  .b-legacy { background: #b91c1c; } .b-unreachable { background: #9ca3af; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+  th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid #e5e7eb; }
+  th { background: #f3f4f6; }
+  pre { background: #0f172a; color: #e2e8f0; padding: .8rem; border-radius: 6px; overflow-x: auto; }
+  .narrative { background: #eff6ff; border-left: 4px solid #2563eb; padding: 1rem; border-radius: 4px; }
 </style>
 </head>
 <body>
 <h1>Post-Quantum TLS Readiness Report</h1>
 <div class="meta">
-  Target: <code>{domain}</code> &middot; {date} &middot; Duration: {duration}s<br>
-  <strong>Domain score: {score}/100</strong> &middot; Hosts scanned: {host_count}
+  Target: <code>{{domain}}</code> &middot; {{date}} &middot; Duration: {{duration}}s<br>
+  <strong>Domain score: {{score}}/100</strong> &middot; Hosts scanned: {{host_count}}
 </div>
 {{narrative}}
 <h2>Host Results</h2>
@@ -185,13 +185,15 @@ def to_html(result: DomainResult, narrative: str | None = None) -> str:
     if narrative:
         narrative_html = f'<h2>Remediation Narrative</h2><div class="narrative">{html.escape(narrative)}</div>'
 
-    body = HTML_TEMPLATE.replace("{{narrative}}", narrative_html)
+    body = HTML_TEMPLATE.replace("{{domain}}", html.escape(result.domain))
+    body = body.replace("{{date}}", html.escape(now))
+    body = body.replace("{{duration}}", f"{result.duration_seconds:.1f}")
+    body = body.replace("{{score}}", str(result.domain_score))
+    body = body.replace("{{host_count}}", str(len(result.hosts)))
+    body = body.replace("{{narrative}}", narrative_html)
     body = body.replace("{{rows}}", "\n".join(rows))
-    body = body.replace("{{remediation}}", "<h2>Remediation Details</h2>" + "\n".join(remediation_blocks) if remediation_blocks else "")
-    return body.format(
-        domain=html.escape(result.domain),
-        date=html.escape(now),
-        duration=f"{result.duration_seconds:.1f}",
-        score=result.domain_score,
-        host_count=len(result.hosts),
+    body = body.replace(
+        "{{remediation}}",
+        "<h2>Remediation Details</h2>" + "\n".join(remediation_blocks) if remediation_blocks else "",
     )
+    return body

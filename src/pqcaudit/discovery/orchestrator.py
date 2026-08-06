@@ -46,5 +46,5 @@ async def discover(
     # Keep only hosts that actually resolve; the apex host may have empty A but
     # still be valid, so keep it only if it resolved.
     resolvable = {h for h, ips in ip_map.items() if ips}
-    hostnames = sorted(resolvable or {domain})
+    hostnames = resolvable or {domain}
     return set(hostnames), ip_map

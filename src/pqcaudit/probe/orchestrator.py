@@ -6,7 +6,7 @@ import asyncio
 import logging
 
 from ..analysis.models import HostProbeResult, HostResult
-from ..analysis.scoring import classify_host
+from ..analysis.scoring import HYBRID_GROUPS, PQ_GROUPS, PURE_MLKEM_GROUPS, classify_host
 from .openssl_probe import run_probe
 
 log = logging.getLogger(__name__)
@@ -59,23 +59,22 @@ async def probe_host(
     hybrid = await run_probe(
         openssl_bin, host, port, groups=HYBRID_GROUP, force_tls13=True, timeout=timeout
     )
-    result.hybrid_supported = hybrid.success and hybrid.group == HYBRID_GROUP
+    result.hybrid_supported = hybrid.success and hybrid.group in HYBRID_GROUPS
 
     pure = await run_probe(
         openssl_bin, host, port, groups=PURE_GROUP, force_tls13=True, timeout=timeout
     )
-    result.pure_mlkem_supported = pure.success and pure.group == PURE_GROUP
+    result.pure_mlkem_supported = pure.success and pure.group in PURE_MLKEM_GROUPS
 
     classical = await run_probe(
         openssl_bin, host, port, groups=CLASSICAL_GROUP, force_tls13=True, timeout=timeout
     )
     result.classical_fallback_ok = classical.success
 
-    result.hybrid_preferred = (
-        result.default_group == HYBRID_GROUP
-        or (result.default_group or "").startswith("SecP256r1MLKEM")
-        or (result.default_group or "").startswith("SecP384r1MLKEM")
-    )
+    # A host is "PQ-preferred" when the group it negotiates by default is any
+    # post-quantum group (hybrid or pure). This must agree with classify_host,
+    # which marks a host READY whenever the default group is in PQ_GROUPS.
+    result.hybrid_preferred = result.default_group in PQ_GROUPS
 
     legacy = await run_probe(
         openssl_bin, host, port, force_legacy_version="tls1", timeout=timeout

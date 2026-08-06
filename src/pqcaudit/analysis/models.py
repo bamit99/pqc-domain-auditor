@@ -39,13 +39,6 @@ class HostProbeResult(BaseModel):
     error: str | None = None
     legacy_tls_present: bool = False
 
-    @property
-    def pq_score(self) -> int:
-        score = 0
-        if self.default_group and self.default_group != "None":
-            score += 1
-        return score
-
 
 class HostResult(BaseModel):
     """A single discovered hostname with its probe outcome."""
@@ -60,7 +53,14 @@ class HostResult(BaseModel):
 
     @property
     def primary_probe(self) -> HostProbeResult | None:
-        return self.probes.get(443)
+        # Prefer port 443 when scanned; otherwise use the lowest-numbered port
+        # that was actually probed. Hard-coding 443 broke any scan that used a
+        # different port (e.g. -p 8443), marking every host unreachable.
+        if not self.probes:
+            return None
+        if 443 in self.probes:
+            return self.probes[443]
+        return self.probes[min(self.probes)]
 
 
 class DomainResult(BaseModel):
