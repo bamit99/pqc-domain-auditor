@@ -146,7 +146,7 @@ Terminal: a `rich` summary table. Files (default `reports/`):
 | JSON | `<domain>-pqc.json` |
 | CSV | `<domain>-pqc.csv` |
 
-The score (0–100) mirrors the model used for the Colt PQC TLS report:
+The score (0–100) follows a public PQC TLS readiness scoring model:
 
 | Criterion | Weight |
 |---|---|

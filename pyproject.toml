@@ -9,7 +9,7 @@ description = "Passive subdomain discovery + Post-Quantum (ML-KEM) TLS readiness
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "Colt Security Engineering" }]
+authors = [{ name = "Amit Bhatnagar" }]
 keywords = ["post-quantum", "pqc", "ml-kem", "tls", "security", "audit", "subdomain"]
 classifiers = [
     "Programming Language :: Python :: 3",

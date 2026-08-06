@@ -1,6 +1,6 @@
 """Verdict classification and post-quantum readiness scoring.
 
-Scoring mirrors the assessment used for the Colt PQC TLS report:
+Scoring follows a public PQC TLS readiness scoring model:
   - PQ key exchange offered         40
   - PQ preferred by default         25
   - TLS 1.3                         15
