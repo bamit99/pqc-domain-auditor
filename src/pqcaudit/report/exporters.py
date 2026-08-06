@@ -81,7 +81,10 @@ def to_markdown(result: DomainResult, narrative: str | None = None) -> str:
             lines += ["**Summary:** " + ", ".join(parts), ""]
 
     if narrative:
-        lines += ["---", "", "## Remediation Narrative", "", narrative, ""]
+        # The LLM narrative is untrusted free-form text; render it inside a
+        # fenced block so any markdown/HTML it contains shows as literal text
+        # rather than being interpreted by markdown renderers.
+        lines += ["---", "", "## Remediation Narrative", "", "```text", narrative, "```", ""]
 
     lines += ["---", "", "## Host Results", ""]
     for host in sorted(result.hosts, key=lambda h: h.hostname):

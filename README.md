@@ -129,6 +129,12 @@ $env:PQC_LLM_MODEL="llama3.1"
 pqcaudit scan example.com --llm ollama
 ```
 
+> **Data-egress note:** when `--llm` selects an external provider (openai,
+> anthropic, or a custom URL), the per-host scan summary (hostnames, resolved
+> IPs, certificate issuers, TLS groups) is sent to that provider to generate
+> the narrative. For sensitive / internal asset inventories, prefer `ollama`
+> (local inference) — no scan data leaves the machine.
+
 ## Output
 
 Terminal: a `rich` summary table. Files (default `reports/`):

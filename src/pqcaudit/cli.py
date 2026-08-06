@@ -51,18 +51,31 @@ def _setup_logging(verbose: bool) -> None:
     )
 
 
-def _valid_domain(value: str) -> str:
+def _is_valid_domain(value: str) -> bool:
     import re
 
     value = value.strip().lower().rstrip(".")
-    if not value or " " in value:
-        raise typer.BadParameter(f"invalid domain: '{value}'")
-    # Reject anything that isn't a dot-separated sequence of LDH labels.
-    if not re.fullmatch(r"[a-z0-9-]+(\.[a-z0-9-]+)+", value) or ".." in value:
-        raise typer.BadParameter(f"invalid domain: '{value}'")
-    if any(label.startswith("-") or label.endswith("-") for label in value.split(".")):
+    if not value or " " in value or ".." in value:
+        return False
+    if not re.fullmatch(r"[a-z0-9-]+(\.[a-z0-9-]+)+", value):
+        return False
+    return not any(label.startswith("-") or label.endswith("-") for label in value.split("."))
+
+
+def _valid_domain(value: str) -> str:
+    value = value.strip().lower().rstrip(".")
+    if not _is_valid_domain(value):
         raise typer.BadParameter(f"invalid domain: '{value}'")
     return value
+
+
+def _valid_hostnames(value: str) -> list[str]:
+    """Validate a comma-separated list of hostnames; raise on any invalid entry."""
+    raw = [h.strip().lower().rstrip(".") for h in value.split(",") if h.strip()]
+    bad = [h for h in raw if not _is_valid_domain(h)]
+    if bad:
+        raise typer.BadParameter(f"invalid hostname(s): {', '.join(bad)}")
+    return raw
 
 
 def _write_report(result: DomainResult, narrative: str | None, outdir: Path, formats: list[str]) -> None:
@@ -172,7 +185,7 @@ async def _scan_async(
     if extra_hosts:
         from .discovery.dns import resolve_hostnames
 
-        added_hosts = {h.strip().lower() for h in extra_hosts.split(",") if h.strip()}
+        added_hosts = set(_valid_hostnames(extra_hosts))
         added_hosts -= hostnames
         added_ips = await asyncio.get_running_loop().run_in_executor(
             None, resolve_hostnames, added_hosts
@@ -213,6 +226,12 @@ async def _scan_async(
     narrative: str | None = None
     provider = llm_provider or settings.llm_provider
     if provider:
+        if provider not in ("ollama",):
+            console.print(
+                f"[yellow]warn[/] sending scan findings (hostnames, IPs, cert issuers) "
+                f"to external LLM provider '{provider}'. Use 'ollama' for local inference "
+                f"if this is sensitive."
+            )
         console.print(f"Generating LLM narrative via [cyan]{provider}[/] ...")
         narrative = await generate_narrative(
             result,
