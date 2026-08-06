@@ -9,9 +9,12 @@
 // Probe modes:
 //
 //	default     normal modern client offer (negotiated group recovered from ServerHello)
-//	hybrid      force X25519MLKEM768 first   -> does the server accept hybrid PQ?
-//	pure        force pure ML-KEM only       -> does the server accept pure ML-KEM?
-//	classical   force X25519/P-256           -> is classical fallback preserved?
+//	hybrid      force hybrid ML-KEM groups first -> does the server accept hybrid PQ?
+//	pure        force pure ML-KEM (MLKEM1024)    -> does the server accept pure ML-KEM?
+//	            (Go 1.24 only implements pure key exchange for MLKEM1024; pure
+//	            MLKEM512/MLKEM768 are not wired into crypto/tls. The OpenSSL
+//	            backend covers the full pure MLKEM512/768/1024 range.)
+//	classical   force X25519/P-256               -> is classical fallback preserved?
 //	legacy      unsupported (Go dropped TLS 1.0/1.1 clients; use OpenSSL)
 //
 // crypto/tls does not expose the negotiated key-exchange group via
@@ -36,13 +39,20 @@ import (
 )
 
 const (
-	extKeyShare        = 0x0033
-	recordHandshake    = 0x16
-	handshakeHello     = 0x02
-	mlkem512  CurveID  = 0x11e9
-	mlkem768  CurveID  = 0x11ea
-	mlkem1024 CurveID  = 0x11eb
-	hybrid768 CurveID  = 0x11ec // X25519MLKEM768
+	extKeyShare     = 0x0033
+	recordHandshake = 0x16
+	handshakeHello  = 0x02
+	// IANA TLS Supported Groups (authoritative codepoints from the registry).
+	// Go 1.24 crypto/tls implements key exchange for: X25519MLKEM768,
+	// SecP256r1MLKEM768, SecP384r1MLKEM1024 (hybrids) and MLKEM1024 (pure).
+	// Pure MLKEM512/MLKEM768 are NOT wired into Go's TLS stack — offering them
+	// would advertise them on the wire but fail at key-exchange time. The
+	// previous values (0x11e9/0x11ea/0x11eb) were wrong: they are hybrid groups
+	// (SecP256r1MLKEM512 / MLKEM512X25519 / SecP256r1MLKEM768), not pure.
+	mlkem1024  CurveID = 0x0202 // 514  — pure ML-KEM-1024 (FIPS 203)
+	hybrid768  CurveID = 0x11ec // 4588 — X25519MLKEM768
+	hybrid256  CurveID = 0x11eb // 4587 — SecP256r1MLKEM768
+	hybrid384  CurveID = 0x11ed // 4589 — SecP384r1MLKEM1024
 )
 
 type CurveID = tls.CurveID
@@ -126,11 +136,17 @@ func (c *recordingConn) serverHelloGroup() uint16 {
 func curvesForProbe(probe string) []tls.CurveID {
 	switch probe {
 	case "hybrid":
-		// Offer ONLY the hybrid group so a server with X25519-first ordering
+		// Offer ONLY hybrid groups so a server with X25519-first ordering
 		// cannot fall back to classical (mirrors openssl -groups X25519MLKEM768).
-		return []tls.CurveID{tls.CurveID(hybrid768)}
+		// X25519MLKEM768 first since that's the deployment-recommended hybrid;
+		// the SecP-based hybrids are additional signal for hybrid_supported.
+		return []tls.CurveID{tls.CurveID(hybrid768), tls.CurveID(hybrid256), tls.CurveID(hybrid384)}
 	case "pure":
-		return []tls.CurveID{tls.CurveID(mlkem768), tls.CurveID(mlkem1024), tls.CurveID(mlkem512)}
+		// Go 1.24 only implements pure key exchange for MLKEM1024 (0x0202).
+		// Pure MLKEM512/MLKEM768 are not wired into crypto/tls — offering them
+		// would advertise them on the wire but fail at key-exchange time, so we
+		// do not offer them here. (The OpenSSL backend covers MLKEM512/768.)
+		return []tls.CurveID{tls.CurveID(mlkem1024)}
 	case "classical":
 		return []tls.CurveID{tls.X25519, tls.CurveP256, tls.CurveP384}
 	default: // "default"
