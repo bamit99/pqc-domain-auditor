@@ -73,6 +73,7 @@ def to_markdown(result: DomainResult, narrative: str | None = None) -> str:
         f"**Duration:** {result.duration_seconds:.1f}s",
         f"**Domain score:** {result.domain_score}/100",
         f"**Hosts scanned:** {len(result.hosts)}",
+        f"**Probe backend:** {result.probe_backend}",
         "",
     ]
     if result.summary:
@@ -137,7 +138,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <h1>Post-Quantum TLS Readiness Report</h1>
 <div class="meta">
   Target: <code>{{domain}}</code> &middot; {{date}} &middot; Duration: {{duration}}s<br>
-  <strong>Domain score: {{score}}/100</strong> &middot; Hosts scanned: {{host_count}}
+  <strong>Domain score: {{score}}/100</strong> &middot; Hosts scanned: {{host_count}} &middot; Probe backend: {{probe_backend}}
 </div>
 {{narrative}}
 <h2>Host Results</h2>
@@ -193,6 +194,7 @@ def to_html(result: DomainResult, narrative: str | None = None) -> str:
     body = body.replace("{{duration}}", f"{result.duration_seconds:.1f}")
     body = body.replace("{{score}}", str(result.domain_score))
     body = body.replace("{{host_count}}", str(len(result.hosts)))
+    body = body.replace("{{probe_backend}}", html.escape(result.probe_backend))
     body = body.replace("{{narrative}}", narrative_html)
     body = body.replace("{{rows}}", "\n".join(rows))
     body = body.replace(

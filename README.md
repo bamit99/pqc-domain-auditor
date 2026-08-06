@@ -59,16 +59,34 @@ Each host is classified:
 ## Requirements
 
 - **Python 3.10+**
-- **OpenSSL >= 3.5** (native ML-KEM support) — the *only* external binary.
+- One TLS probe backend:
+  - **Go dialer** (preferred): a prebuilt `godialer` binary
+    (`C:\Users\<you>\.cache\pqcaudit\godialer.exe`, or `~/.cache/pqcaudit/`
+    on macOS/Linux). On machines with **Go >= 1.24** installed, the tool
+    builds it automatically on first run — Go's standard library has native
+    `X25519MLKEM768` (RFC 9794) support, so no OpenSSL needed at all. To use a
+    prebuilt binary (e.g. on the probe box), set `PQC_GO_DIALER`.
+  - **OpenSSL >= 3.5** (native ML-KEM support) — first LTS release with
+    ML-KEM is OpenSSL 3.5 (Ubuntu 25.04, RHEL 10).
 
-On first run the tool **preflights** OpenSSL and, if it is missing or too old,
-prints exact install instructions for your platform:
+Backend selection is automatic (`auto`): **Go dialer > OpenSSL 3.5+**. Control
+it with `PQC_BACKEND=auto|go|openssl`. In Go mode, OpenSSL (any version) is
+still used for the legacy TLS 1.0/1.1 probe when available.
+
+On first run the tool **preflights** the backend and, if it is missing or too
+old, prints exact install instructions for your platform:
 
 | Platform | Command |
 |---|---|
-| Windows | `winget install ShiningLight.OpenSSL.Light` |
-| macOS | `brew install openssl@3` |
-| Linux | `sudo apt install openssl` (needs 3.5+, e.g. Ubuntu 25.04+ / Debian sid) |
+| Windows | `winget install GoLang.Go` (auto-builds `godialer`) or `winget install ShiningLight.OpenSSL.Light` |
+| macOS | `brew install go` or `brew install openssl@3` |
+| Linux | `sudo apt install golang-go` or OpenSSL 3.5+ (see LTS caveat below) |
+
+> **OpenSSL LTS caveat:** `sudo apt install openssl` on Ubuntu 24.04 / Debian 12
+> / RHEL 9 installs **3.0.x**, which has *no* ML-KEM groups and will fail
+> preflight. Either install OpenSSL 3.5+ (e.g. the `openssl3` PPA on Ubuntu),
+> or simply install Go (`golang-go`) and let the tool build the `godialer`
+> backend — no system package upgrade required.
 
 If OpenSSL lives somewhere non-standard, set `PQC_OPENSSL_BIN` to its path.
 
@@ -157,6 +175,11 @@ The score (0–100) follows a public PQC TLS readiness scoring model:
 | Quantum-safe symmetric cipher | 10 |
 | PQ (ML-DSA/SLH-DSA) certificate | bonus |
 
+*All TLS 1.3 AEAD suites (AES-128/256-GCM, ChaCha20-Poly1305) are quantum-safe,
+so the symmetric-cipher criterion is satisfied by any TLS 1.3 connection —
+regardless of whether the probe backend (OpenSSL vs Go dialer) negotiates
+AES-128-GCM or AES-256-GCM.*
+
 ## Development
 
 ```bash
@@ -173,7 +196,10 @@ src/pqcaudit/
 ├── cli.py                  # typer CLI + rich output
 ├── config.py               # env-based settings + LLM config
 ├── discovery/              # crt.sh + dnspython enumeration
-├── probe/                  # OpenSSL preflight + s_client handshake probes
+├── probe/                  # preflight + s_client probes, Go dialer backend
+│   ├── preflight.py        # backend detection (Go dialer / OpenSSL) + auto-build
+│   ├── go_probe.py         # godialer JSONL parsing + result normalization
+│   └── godialer/           # Go TLS dialer (X25519MLKEM768), buildable to a binary
 ├── analysis/               # verdict classification + scoring
 ├── remediation/            # deterministic fixes + optional LLM narrative
 └── report/                 # markdown / html / json / csv exporters

@@ -29,6 +29,12 @@ HYBRID_GROUPS = frozenset({"X25519MLKEM768", "SecP256r1MLKEM768", "SecP384r1MLKE
 
 QUANTUM_SAFE_CIPHERS = frozenset(
     {
+        # Every TLS 1.3 cipher suite is an AEAD with >= 128-bit security, and is
+        # therefore quantum-safe (the record layer survives harvest-now-
+        # decrypt-later). AES-128-GCM is included so the probe backend (OpenSSL
+        # vs Go dialer) does not change the score just because it offers a
+        # different but equally quantum-safe suite order.
+        "TLS_AES_128_GCM_SHA256",
         "TLS_AES_256_GCM_SHA384",
         "TLS_CHACHA20_POLY1305_SHA256",
     }

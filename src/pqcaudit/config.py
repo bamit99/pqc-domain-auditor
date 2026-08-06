@@ -19,6 +19,10 @@ class Settings:
     openssl_bin: str = field(
         default_factory=lambda: os.environ.get("PQC_OPENSSL_BIN", "openssl")
     )
+    # Probe backend selection: "auto" (Go dialer preferred), "go", or "openssl".
+    backend: str = field(default_factory=lambda: os.environ.get("PQC_BACKEND", "auto").strip().lower())
+    # Explicit path to a prebuilt godialer binary (skips Go toolchain build).
+    go_dialer: str = field(default_factory=lambda: os.environ.get("PQC_GO_DIALER", "").strip())
     connect_timeout: float = field(default_factory=lambda: float(os.environ.get("PQC_TIMEOUT", "10")))
     handshake_retries: int = field(default_factory=lambda: int(os.environ.get("PQC_RETRIES", "1")))
     concurrency: int = field(default_factory=lambda: int(os.environ.get("PQC_CONCURRENCY", "32")))

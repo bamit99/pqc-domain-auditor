@@ -19,7 +19,7 @@ from .analysis.scoring import domain_score
 from .config import Settings
 from .discovery.orchestrator import discover
 from .probe.orchestrator import audit_host
-from .probe.preflight import preflight
+from .probe.preflight import ProbeBackend, preflight
 from .remediation.engine import remediate_host
 from .remediation.llm import generate_narrative
 from .report import exporters
@@ -125,6 +125,11 @@ def scan(
         "--llm",
         help="LLM provider for narrative: openai, anthropic, ollama, or a custom OpenAI-compatible URL",
     ),
+    backend: str = typer.Option(
+        "auto",
+        "--backend",
+        help="Probe backend: auto, go, openssl (overrides PQC_BACKEND)",
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Debug logging"),
 ) -> None:
     """Discover subdomains of DOMAIN and audit their post-quantum TLS readiness."""
@@ -140,6 +145,7 @@ def scan(
             use_dns=use_dns,
             extra_hosts=hosts,
             llm_provider=llm_provider,
+            backend_name=backend,
             verbose=verbose,
         )
     )
@@ -157,6 +163,7 @@ async def _scan_async(
     use_dns: bool,
     extra_hosts: str | None,
     llm_provider: str | None,
+    backend_name: str,
     verbose: bool,
 ) -> None:
     _setup_logging(verbose)
@@ -165,16 +172,30 @@ async def _scan_async(
         connect_timeout=timeout,
         ports=tuple(int(p) for p in ports.split(",")),
     )
+    if backend_name and backend_name.strip().lower() != "auto":
+        settings.backend = backend_name.strip().lower()
 
     console.print(f"[bold]pqc-domain-auditor v{__version__}[/]")
     console.print(f"Auditing [bold cyan]{domain}[/] ...")
 
-    console.print("Checking OpenSSL preflight ...")
-    pre = preflight(settings.openssl_bin)
+    console.print("Checking probe backend preflight ...")
+    pre = preflight(
+        settings.openssl_bin,
+        backend_pref=settings.backend,
+        go_dialer_env=settings.go_dialer,
+    )
     if not pre.ok:
         console.print(f"[bold red]Preflight failed:[/]\n{pre.error}")
         raise typer.Exit(1)
-    console.print(f"  [green]ok[/] OpenSSL {pre.version} with ML-KEM groups")
+    if pre.backend == "go":
+        console.print(f"  [green]ok[/] Go dialer backend ({pre.go_dialer})")
+        if pre.openssl_bin:
+            console.print(f"  [green]ok[/] OpenSSL {pre.openssl_version} present - legacy TLS probe available")
+        else:
+            console.print("  [yellow]warn[/] no OpenSSL - legacy TLS 1.0/1.1 probe skipped")
+    else:
+        console.print(f"  [green]ok[/] OpenSSL {pre.openssl_version} backend with ML-KEM groups")
+    backend = ProbeBackend(mode=pre.backend, go_dialer=pre.go_dialer, openssl_bin=pre.openssl_bin)
 
     start = time.monotonic()
     hostnames, ip_map = await discover(
@@ -200,7 +221,7 @@ async def _scan_async(
     async def _audit(hostname: str):
         async with sem:
             return await audit_host(
-                settings.openssl_bin,
+                backend,
                 hostname,
                 ip_map.get(hostname, []),
                 ports=settings.ports,
@@ -221,6 +242,7 @@ async def _scan_async(
         hosts=audited,
         domain_score=score,
         summary=summary,
+        probe_backend=pre.backend,
     )
 
     narrative: str | None = None
@@ -291,13 +313,32 @@ def preflight_alias() -> None:
 
 
 @app.command("preflight-check")
-def preflight_check() -> None:
-    """Check that the required OpenSSL binary with ML-KEM support is available."""
+def preflight_check(
+    backend: str = typer.Option(
+        "auto",
+        "--backend",
+        help="Probe backend: auto, go, openssl (overrides PQC_BACKEND)",
+    ),
+) -> None:
+    """Check that a post-quantum probe backend (Go dialer or OpenSSL 3.5+) is available."""
     settings = Settings()
-    pre = preflight(settings.openssl_bin)
+    if backend and backend.strip().lower() != "auto":
+        settings.backend = backend.strip().lower()
+    pre = preflight(
+        settings.openssl_bin,
+        backend_pref=settings.backend,
+        go_dialer_env=settings.go_dialer,
+    )
     if pre.ok:
-        console.print(f"[green]OK[/] OpenSSL {pre.version} at {pre.openssl_bin}")
-        console.print(f"Groups: {', '.join(sorted(pre.groups))}")
+        if pre.backend == "go":
+            console.print(f"[green]OK[/] Go dialer backend: {pre.go_dialer}")
+            if pre.openssl_bin:
+                console.print(f"[green]OK[/] OpenSSL {pre.openssl_version} available for the legacy TLS probe")
+            else:
+                console.print("[yellow]warn[/] no OpenSSL - legacy TLS 1.0/1.1 probe skipped")
+        else:
+            console.print(f"[green]OK[/] OpenSSL {pre.openssl_version} at {pre.openssl_bin}")
+            console.print(f"Groups: {', '.join(sorted(pre.groups))}")
     else:
         console.print(f"[bold red]FAILED[/]\n{pre.error}")
         raise typer.Exit(1)

@@ -72,6 +72,7 @@ class DomainResult(BaseModel):
     hosts: list[HostResult] = Field(default_factory=list)
     domain_score: int = 0
     summary: dict[str, int] = Field(default_factory=dict)
+    probe_backend: str = "openssl"
 
     @property
     def reachable_hosts(self) -> list[HostResult]:

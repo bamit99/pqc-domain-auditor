@@ -37,7 +37,7 @@ def test_not_ready_when_no_pq():
     host = _host(probe)
     classify_host(host)
     assert host.verdict == Verdict.NOT_READY
-    assert host.score == 25  # TLS 1.3 (15) + fallback (10)
+    assert host.score == 35  # TLS 1.3 (15) + fallback (10) + quantum-safe cipher (10)
 
 
 def test_capable_when_hybrid_supported_not_preferred():
@@ -91,7 +91,7 @@ def test_domain_score_aggregation():
     for h in hosts:
         classify_host(h)
     score, summary = domain_score(hosts)
-    assert score == 62
+    assert score == 68  # (100 + 35) / 2 rounded
     assert summary[Verdict.READY.value] == 1
     assert summary[Verdict.NOT_READY.value] == 1
 
