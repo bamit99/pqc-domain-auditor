@@ -97,3 +97,42 @@ def test_legacy_tls_flagged():
     assert host.verdict == Verdict.LEGACY
     text = "\n".join(remediate_host(host))
     assert "Legacy TLS" in text
+
+
+def test_legacy_probe_skipped_emits_advisory():
+    # Pure-Go mode, no OpenSSL: legacy detection unavailable. The remediation
+    # must warn the reader not to interpret the missing legacy flag as proof
+    # that TLS 1.0/1.1 is disabled.
+    host = _host({
+        "default_group": "X25519",
+        "hybrid_supported": False,
+        "pure_mlkem_supported": False,
+        "classical_fallback_ok": True,
+        "legacy_tls_present": False,
+        "legacy_probe_skipped": True,
+        "server_header": "nginx/1.27.0",
+    })
+    text = "\n".join(remediate_host(host))
+    assert "Legacy TLS 1.0/1.1 detection unavailable" in text
+    # The "detected" finding (a separate high-priority item) must not appear,
+    # because the probe was skipped and no legacy TLS was actually found.
+    assert "high] Legacy TLS detected" not in text
+
+
+def test_legacy_probe_skipped_suppressed_when_legacy_present():
+    # Edge case: if legacy_tls_present is True AND skipped is True (shouldn't
+    # normally happen, but defends against contradictory output), the
+    # "detected" item wins and the "unavailable" advisory is suppressed.
+    host = _host({
+        "tls_version": "TLSv1.2",
+        "default_group": "X25519",
+        "hybrid_supported": False,
+        "pure_mlkem_supported": False,
+        "classical_fallback_ok": True,
+        "legacy_tls_present": True,
+        "legacy_probe_skipped": True,
+        "server_header": "nginx/1.27.0",
+    })
+    text = "\n".join(remediate_host(host))
+    assert "Legacy TLS detected" in text
+    assert "detection unavailable" not in text

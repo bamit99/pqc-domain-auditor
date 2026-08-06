@@ -61,15 +61,20 @@ async def _forced_probe(
 
 async def _legacy_probe(
     backend: ProbeBackend, host: str, port: int, *, timeout: float
-) -> bool:
-    """Detect TLS 1.0/1.1. Requires an OpenSSL binary; False in pure-Go mode."""
+) -> tuple[bool, bool]:
+    """Detect TLS 1.0/1.1. Requires an OpenSSL binary.
+
+    Returns ``(legacy_tls_present, skipped)``. ``skipped`` is True only in
+    pure-Go mode with no OpenSSL, where the probe cannot run at all — distinct
+    from a probe that ran and found no legacy TLS.
+    """
     if backend.mode == "go" and not backend.openssl_bin:
-        return False
+        return False, True
     openssl = backend.openssl_bin
     legacy = await run_probe(openssl, host, port, force_legacy_version="tls1", timeout=timeout)
     if not legacy.success:
         legacy = await run_probe(openssl, host, port, force_legacy_version="tls1_1", timeout=timeout)
-    return legacy.success
+    return legacy.success, False
 
 
 async def probe_host(
@@ -108,7 +113,9 @@ async def probe_host(
     # which marks a host READY whenever the default group is in PQ_GROUPS.
     result.hybrid_preferred = result.default_group in PQ_GROUPS
 
-    result.legacy_tls_present = await _legacy_probe(backend, host, port, timeout=timeout)
+    result.legacy_tls_present, result.legacy_probe_skipped = await _legacy_probe(
+        backend, host, port, timeout=timeout
+    )
 
     return result
 

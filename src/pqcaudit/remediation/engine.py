@@ -196,6 +196,13 @@ def remediate_host(host: HostResult) -> list[str]:
             "is already PQ-protected by key exchange, but plan ML-DSA (FIPS 204) certificates "
             "once CAs issue them - this closes the last classical link (authentication)."))
 
+    if probe.legacy_probe_skipped and not probe.legacy_tls_present:
+        items.append(RemediationItem("low", "Legacy TLS 1.0/1.1 detection unavailable",
+            "The TLS 1.0/1.1 probe was skipped because no OpenSSL binary is available in "
+            "Go-backend mode. Do NOT read the absence of a 'Legacy TLS detected' finding as "
+            "confirmation that TLS 1.0/1.1 is disabled - run the scan with the OpenSSL backend "
+            "(--backend openssl, requires OpenSSL 3.5+) or with any OpenSSL on PATH to verify."))
+
     return [f"[{item.priority}] {item.title}:\n{item.detail}" for item in items]
 
 

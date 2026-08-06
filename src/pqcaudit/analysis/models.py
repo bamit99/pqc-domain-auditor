@@ -38,6 +38,12 @@ class HostProbeResult(BaseModel):
     server_header: str | None = None
     error: str | None = None
     legacy_tls_present: bool = False
+    # True when the TLS 1.0/1.1 probe could not run at all (pure-Go backend
+    # with no OpenSSL available). Distinct from legacy_tls_present=False, which
+    # means the probe ran and found no legacy TLS. Used by the remediation
+    # engine so a reader doesn't read "no legacy flag" as "TLS 1.0 definitely
+    # disabled" when detection was actually unavailable.
+    legacy_probe_skipped: bool = False
 
 
 class HostResult(BaseModel):
