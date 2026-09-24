@@ -24,9 +24,60 @@ from .remediation.engine import remediate_host
 from .remediation.llm import generate_narrative
 from .report import exporters
 
+EPILOG = """
+[bold]EXAMPLES[/]
+
+  Audit a domain - discovers, probes, writes all four report formats:
+    pqcaudit scan example.com
+
+  Write reports elsewhere, markdown only:
+    pqcaudit scan example.com -o reports/ -f md
+
+  Probe non-standard TLS ports:
+    pqcaudit scan example.com -p 443,8443,9443
+
+  Add hostnames CT logs cannot enumerate (wildcard-cert endpoints):
+    pqcaudit scan example.com --hosts api.example.com,vpn.example.com
+
+  DNS records only - skip certificate-transparency logs:
+    pqcaudit scan example.com --no-ct
+
+  Raise concurrency and handshake timeout for a large domain:
+    pqcaudit scan example.com -c 64 -t 20
+
+  Force a specific probe backend:
+    pqcaudit scan example.com --backend openssl
+
+  Verify the probe toolchain before an audit run:
+    pqcaudit preflight
+
+  Show version:
+    pqcaudit version
+
+[bold]REPORT FORMATS[/]  (-f, default: md,html,json,csv)
+
+  md      Human-readable report - verdicts, scores and remediation steps
+  html    Self-contained HTML report, no external assets - easy to share
+  json    Machine-readable result - CI dashboards, diffing between runs
+  csv     One row per host - spreadsheets and ticketing imports
+
+  Files are named <domain>-pqc.<ext> (dots become dashes), e.g. a scan of
+  example.com with -f json yields reports/example-com-pqc.json.
+
+[bold]PROBE BACKENDS[/]  (--backend, or PQC_BACKEND; default: auto)
+
+  auto     Prefer the Go dialer, fall back to OpenSSL 3.5+
+  go       Require the Go dialer (built on demand, then cached)
+  openssl  Require OpenSSL 3.5+ with ML-KEM group support
+
+  Run 'pqcaudit preflight' to see which backends are available on this host.
+"""
+
 app = typer.Typer(
     name="pqcaudit",
     help="Post-Quantum (ML-KEM) TLS readiness auditor with remediation guidance.",
+    epilog=EPILOG,
+    no_args_is_help=True,
     add_completion=False,
 )
 console = Console()
@@ -132,7 +183,26 @@ def scan(
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Debug logging"),
 ) -> None:
-    """Discover subdomains of DOMAIN and audit their post-quantum TLS readiness."""
+    """Discover subdomains of DOMAIN and audit their post-quantum TLS readiness.
+
+    \b
+    Discovers hostnames via certificate-transparency logs and DNS, then opens a
+    real TLS handshake to each over every requested port to see whether the
+    server negotiates a post-quantum (ML-KEM / X25519MLKEM768) key exchange.
+    Each host gets a verdict, a score, and remediation steps; a domain score is
+    printed at the end. Reports land in --outdir as <domain>-pqc.<ext>.
+
+    \b
+    Examples:
+      pqcaudit scan example.com
+      pqcaudit scan example.com -o reports/ -f md
+      pqcaudit scan example.com -p 443,8443
+      pqcaudit scan example.com --hosts api.example.com,vpn.example.com
+      pqcaudit scan example.com --no-ct -c 64
+
+    \b
+    See 'pqcaudit --help' for report-format and backend reference.
+    """
     asyncio.run(
         _scan_async(
             domain=domain,
@@ -320,7 +390,18 @@ def preflight_check(
         help="Probe backend: auto, go, openssl (overrides PQC_BACKEND)",
     ),
 ) -> None:
-    """Check that a post-quantum probe backend (Go dialer or OpenSSL 3.5+) is available."""
+    """Check that a post-quantum probe backend (Go dialer or OpenSSL 3.5+) is available.
+
+    \b
+    Run this before a first audit, or after changing toolchains. Reports which
+    backend would be used, the OpenSSL version found, and the ML-KEM groups the
+    local OpenSSL advertises. Exits non-zero if no usable backend exists.
+
+    \b
+    Examples:
+      pqcaudit preflight
+      pqcaudit preflight-check --backend openssl
+    """
     settings = Settings()
     if backend and backend.strip().lower() != "auto":
         settings.backend = backend.strip().lower()
