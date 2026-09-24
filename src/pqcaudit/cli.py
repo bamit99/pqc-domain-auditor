@@ -309,7 +309,7 @@ async def _scan_async(
 @app.command("preflight", help="Alias for preflight-check.")
 def preflight_alias() -> None:
     """Alias for preflight-check."""
-    preflight_check()
+    preflight_check(backend="auto")
 
 
 @app.command("preflight-check")
