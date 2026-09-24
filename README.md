@@ -34,8 +34,10 @@ cd pqc-domain-auditor
 
 ```bash
 python -m venv .venv
-# Windows:
+# Windows (PowerShell):
 .venv\Scripts\Activate.ps1
+# Windows (Git Bash / MSYS):
+source .venv/Scripts/activate
 # macOS/Linux:
 source .venv/bin/activate
 
