@@ -45,6 +45,9 @@ EPILOG = """
   Raise concurrency and handshake timeout for a large domain:
     pqcaudit scan example.com -c 64 -t 20
 
+  Stay gentle on a shared or corporate DNS resolver:
+    pqcaudit scan example.com --resolve-rps 5 --max-hosts 500
+
   Force a specific probe backend:
     pqcaudit scan example.com --backend openssl
 
@@ -171,6 +174,21 @@ def scan(
         help="Comma-separated extra hostnames to audit (e.g. endpoints behind wildcard certs "
         "that CT logs cannot enumerate)",
     ),
+    resolve_concurrency: int | None = typer.Option(
+        None,
+        "--resolve-concurrency",
+        help="Max concurrent DNS lookups (default 8; overrides PQC_RESOLVE_CONCURRENCY)",
+    ),
+    resolve_rps: float | None = typer.Option(
+        None,
+        "--resolve-rps",
+        help="DNS queries per second, 0 = no pacing (default 15; overrides PQC_RESOLVE_RPS)",
+    ),
+    max_hosts: int | None = typer.Option(
+        None,
+        "--max-hosts",
+        help="Max candidate hostnames to resolve, 0 = unlimited (default 2000; overrides PQC_MAX_HOSTS)",
+    ),
     llm_provider: str | None = typer.Option(
         None,
         "--llm",
@@ -199,6 +217,7 @@ def scan(
       pqcaudit scan example.com -p 443,8443
       pqcaudit scan example.com --hosts api.example.com,vpn.example.com
       pqcaudit scan example.com --no-ct -c 64
+      pqcaudit scan example.com --resolve-rps 5 --max-hosts 500
 
     \b
     See 'pqcaudit --help' for report-format and backend reference.
@@ -217,6 +236,9 @@ def scan(
             llm_provider=llm_provider,
             backend_name=backend,
             verbose=verbose,
+            resolve_concurrency=resolve_concurrency,
+            resolve_rps=resolve_rps,
+            max_hosts=max_hosts,
         )
     )
 
@@ -235,6 +257,9 @@ async def _scan_async(
     llm_provider: str | None,
     backend_name: str,
     verbose: bool,
+    resolve_concurrency: int | None = None,
+    resolve_rps: float | None = None,
+    max_hosts: int | None = None,
 ) -> None:
     _setup_logging(verbose)
     settings = Settings(
@@ -242,13 +267,30 @@ async def _scan_async(
         connect_timeout=timeout,
         ports=tuple(int(p) for p in ports.split(",")),
     )
+    # Flags override the PQC_* environment; unset flags leave the environment in
+    # charge, so a default flag value does not silently kill the env setting.
+    if resolve_concurrency is not None:
+        settings.resolve_concurrency = resolve_concurrency
+    if resolve_rps is not None:
+        settings.resolve_rps = resolve_rps
+    if max_hosts is not None:
+        settings.max_hosts = max_hosts
     if backend_name and backend_name.strip().lower() != "auto":
         settings.backend = backend_name.strip().lower()
+
+    # Progress goes to stderr so piping stdout (e.g. to a file) stays clean.
+    progress = Console(stderr=True)
+    start = time.monotonic()
+
+    def stage(message: str) -> None:
+        """Print a timestamped stage line - what the tool is doing right now."""
+        elapsed = time.monotonic() - start
+        progress.print(f"[dim]{elapsed:6.1f}s[/] [cyan]->[/] {message}")
 
     console.print(f"[bold]pqc-domain-auditor v{__version__}[/]")
     console.print(f"Auditing [bold cyan]{domain}[/] ...")
 
-    console.print("Checking probe backend preflight ...")
+    stage("checking probe backend (preflight)")
     pre = preflight(
         settings.openssl_bin,
         backend_pref=settings.backend,
@@ -267,9 +309,17 @@ async def _scan_async(
         console.print(f"  [green]ok[/] OpenSSL {pre.openssl_version} backend with ML-KEM groups")
     backend = ProbeBackend(mode=pre.backend, go_dialer=pre.go_dialer, openssl_bin=pre.openssl_bin)
 
-    start = time.monotonic()
+    nameservers = [settings.dns_resolver] if settings.dns_resolver else None
     hostnames, ip_map = await discover(
-        domain, use_ct=use_ct, use_dns=use_dns, crtsh_base=settings.crtsh_base
+        domain,
+        use_ct=use_ct,
+        use_dns=use_dns,
+        crtsh_base=settings.crtsh_base,
+        on_stage=stage,
+        resolve_concurrency=settings.resolve_concurrency,
+        resolve_rps=settings.resolve_rps,
+        max_hosts=settings.max_hosts,
+        nameservers=nameservers,
     )
 
     added_hosts: set[str] = set()
@@ -278,19 +328,36 @@ async def _scan_async(
 
         added_hosts = set(_valid_hostnames(extra_hosts))
         added_hosts -= hostnames
+        stage(f"resolving {len(added_hosts)} extra hostname(s) from --hosts")
         added_ips = await asyncio.get_running_loop().run_in_executor(
-            None, resolve_hostnames, added_hosts
+            None, resolve_hostnames, added_hosts, nameservers
         )
         ip_map.update({h: ips for h, ips in added_ips.items() if ips})
         hostnames = hostnames | {h for h, ips in added_ips.items() if ips}
 
+    # discover() returns the set of candidates that resolved, which can be empty.
+    # Probing a name that does not resolve would score the domain 0 and read as a
+    # dead domain, so fail here with the actual reason.
+    if not hostnames:
+        console.print(
+            f"[bold red]No resolvable hostnames found[/] for [cyan]{domain}[/]. "
+            f"Nothing to probe - check the domain, or set PQC_DNS_RESOLVER."
+        )
+        raise typer.Exit(1)
+
     console.print(f"Discovered [bold]{len(hostnames)}[/] resolvable hostnames for [cyan]{domain}[/]")
+    port_list = ",".join(str(p) for p in settings.ports)
+    stage(
+        f"probing {len(hostnames)} host(s) on port(s) {port_list} "
+        f"with {settings.concurrency} concurrent worker(s)"
+    )
 
     sem = asyncio.Semaphore(settings.concurrency)
+    completed = 0
 
     async def _audit(hostname: str):
         async with sem:
-            return await audit_host(
+            host_result = await audit_host(
                 backend,
                 hostname,
                 ip_map.get(hostname, []),
@@ -298,11 +365,39 @@ async def _scan_async(
                 concurrency=settings.concurrency,
                 timeout=settings.connect_timeout,
             )
+        nonlocal completed
+        # Nothing is awaited between the increment and the print, so the counter
+        # and its line are already atomic in the single-threaded loop.
+        completed += 1
+        # Show every host when the target is small; otherwise show a
+        # heartbeat so output stays readable on large domains.
+        if len(hostnames) <= 25 or completed % 25 == 0 or completed == len(hostnames):
+            probe = host_result.primary_probe
+            elapsed = time.monotonic() - start
+            if probe is not None and not probe.reachable:
+                detail = f"[yellow]unreachable[/] ({probe.error or 'no response'})"
+            elif probe is not None:
+                detail = f"[green]{probe.default_group or probe.tls_version or 'ok'}[/]"
+            else:
+                detail = "[dim]no probe[/]"
+            progress.print(
+                f"[dim]{elapsed:6.1f}s[/] [{completed}/{len(hostnames)}] {hostname} ... {detail}"
+            )
+        return host_result
 
     audited = await asyncio.gather(*(_audit(h) for h in hostnames))
 
+    stage("classifying results and building remediation")
     for host in audited:
         host.remediation = remediate_host(host)
+
+    sorted_hosts = sorted(audited, key=lambda h: h.hostname)
+    err_hosts = [h for h in sorted_hosts if h.verdict == Verdict.UNREACHABLE]
+    if err_hosts:
+        progress.print(
+            f"[yellow]warn[/] {len(err_hosts)} host(s) unreachable - "
+            f"listed in the report with their error"
+        )
 
     score, summary = domain_score(audited)
     result = DomainResult(
@@ -349,7 +444,13 @@ async def _scan_async(
     table.add_column("Fallback")
     table.add_column("Server")
 
-    for host in sorted(audited, key=lambda h: h.hostname):
+    # A summary table with one row per host is the right shape for a handful of
+    # hosts and unreadable for hundreds. Cap what prints inline; the full set is
+    # always in the written reports.
+    MAX_TABLE_ROWS = 25
+    shown = sorted_hosts[:MAX_TABLE_ROWS]
+
+    for host in shown:
         probe = host.primary_probe
         verdict = host.verdict
         color, label = VERDICT_STYLE.get(verdict, ("dim", "n/a"))
@@ -365,6 +466,24 @@ async def _scan_async(
             (probe.server_header or "-") if probe else "-",
         )
     console.print(table)
+    if len(sorted_hosts) > MAX_TABLE_ROWS:
+        console.print(
+            f"[dim]Showing {MAX_TABLE_ROWS} of {len(sorted_hosts)} hosts - "
+            f"the full set is in the written reports.[/]"
+        )
+
+    # Errors are first-class output, not something to bury in a report file.
+    if err_hosts:
+        err_table = Table(title=f"Unreachable / errored hosts ({len(err_hosts)})", show_lines=False)
+        err_table.add_column("Hostname", style="bold")
+        err_table.add_column("Reason", style="yellow")
+        for host in err_hosts[:MAX_TABLE_ROWS]:
+            probe = host.primary_probe
+            reason = (probe.error if probe and probe.error else "no response")
+            err_table.add_row(host.hostname, reason)
+        console.print(err_table)
+        if len(err_hosts) > MAX_TABLE_ROWS:
+            console.print(f"[dim]... and {len(err_hosts) - MAX_TABLE_ROWS} more (see reports).[/]")
 
     fmt_list = [f.strip().lower() for f in formats.split(",") if f.strip()]
     console.print(f"Writing reports to [bold]{outdir}[/] ...")

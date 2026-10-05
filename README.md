@@ -209,6 +209,9 @@ pqcaudit scan example.com -p 443,8443
 # Tune speed / reliability
 pqcaudit scan example.com -c 64 -t 8
 
+# Stay gentle on a shared or corporate DNS resolver
+pqcaudit scan example.com --resolve-rps 5 --resolve-concurrency 4 --max-hosts 500
+
 # Discovery sources
 pqcaudit scan example.com --no-dns   # certificate transparency only
 pqcaudit scan example.com --no-ct    # DNS records only
@@ -247,6 +250,18 @@ Run `pqcaudit scan --help` to see every flag.
 | `PQC_PORTS` | `443` | Comma-separated ports to probe |
 | `PQC_CRTSH_BASE` | `https://crt.sh` | crt.sh base URL override |
 | `PQC_DNS_RESOLVER` | *(system)* | Custom DNS resolver IP |
+| `PQC_RESOLVE_CONCURRENCY` | `8` | Max DNS lookups in flight |
+| `PQC_RESOLVE_RPS` | `15` | DNS queries per second (`0` = no pacing) |
+| `PQC_MAX_HOSTS` | `2000` | Max candidate hostnames to resolve (`0` = unlimited) |
+
+DNS fan-out is deliberately resolver-friendly. A large domain can surface tens
+of thousands of CT names, and firing them at the local resolver in parallel
+looks like an attack — a resolver that decides to rate-limit us turns every
+lookup into a timeout, which the scan would report as a dead domain. Lookups are
+paced by a token bucket, capped in flight, and the candidate list is truncated
+with the shallowest names first. If a third or more of the lookups time out, the
+scan warns that the resolver is likely being rate-limited and tells you to lower
+`--resolve-rps` / `--resolve-concurrency`.
 
 ### LLM configuration (optional)
 

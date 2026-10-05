@@ -28,6 +28,17 @@ class Settings:
     concurrency: int = field(default_factory=lambda: int(os.environ.get("PQC_CONCURRENCY", "32")))
     crtsh_base: str = field(default_factory=lambda: os.environ.get("PQC_CRTSH_BASE", "https://crt.sh"))
     dns_resolver: str = field(default_factory=lambda: os.environ.get("PQC_DNS_RESOLVER", ""))
+    # Resolver-friendly DNS fan-out. Firing parallel lookups at the local resolver
+    # gets it to rate-limit us, which the scan would read as hosts being dead.
+    resolve_concurrency: int = field(
+        default_factory=lambda: int(os.environ.get("PQC_RESOLVE_CONCURRENCY", "8"))
+    )
+    resolve_rps: float = field(
+        default_factory=lambda: float(os.environ.get("PQC_RESOLVE_RPS", "15"))
+    )
+    max_hosts: int = field(
+        default_factory=lambda: int(os.environ.get("PQC_MAX_HOSTS", "2000"))
+    )
     ports: tuple[int, ...] = field(
         default_factory=lambda: tuple(int(p) for p in os.environ.get("PQC_PORTS", "443").split(","))
     )
